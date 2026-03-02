@@ -8,6 +8,7 @@ interface Task {
   title: string;
   status: string;
   description: string;
+  order: number;
 }
 
 function App() {
@@ -17,18 +18,21 @@ function App() {
       title: "Task 1",
       status: "todo",
       description: "Description for task 1",
+      order: 0,
     },
     {
       id: 2,
       title: "Task 2",
       status: "in-progress",
       description: "Description for task 2",
+      order: 0,
     },
     {
       id: 3,
       title: "Task 3",
       status: "done",
       description: "Description for task 3",
+      order: 0,
     },
   ]);
 
@@ -38,12 +42,61 @@ function App() {
     "done",
   ]);
 
-  const handleTaskDrop = (taskId: number, newStatus: string) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === taskId ? { ...task, status: newStatus } : task,
-      ),
-    );
+  const handleTaskDrop = (
+    taskId: number,
+    newStatus: string,
+    targetTaskId?: number,
+    position?: "before" | "after",
+  ) => {
+    setTasks((prevTasks) => {
+      const draggedTask = prevTasks.find((t) => t.id === taskId);
+      if (!draggedTask) return prevTasks;
+
+      // Get tasks in target column
+      const targetColumnTasks = prevTasks
+        .filter((t) => t.status === newStatus && t.id !== taskId)
+        .sort((a, b) => a.order - b.order);
+
+      let newOrder: number;
+
+      if (targetTaskId && position) {
+        // Dropping near a specific task
+        const targetIndex = targetColumnTasks.findIndex(
+          (t) => t.id === targetTaskId,
+        );
+        if (targetIndex !== -1) {
+          if (position === "before") {
+            newOrder =
+              targetIndex > 0
+                ? (targetColumnTasks[targetIndex - 1].order +
+                    targetColumnTasks[targetIndex].order) /
+                  2
+                : targetColumnTasks[targetIndex].order - 1;
+          } else {
+            newOrder =
+              targetIndex < targetColumnTasks.length - 1
+                ? (targetColumnTasks[targetIndex].order +
+                    targetColumnTasks[targetIndex + 1].order) /
+                  2
+                : targetColumnTasks[targetIndex].order + 1;
+          }
+        } else {
+          newOrder = targetColumnTasks.length;
+        }
+      } else {
+        // Dropping in empty space - put at end
+        newOrder =
+          targetColumnTasks.length > 0
+            ? targetColumnTasks[targetColumnTasks.length - 1].order + 1
+            : 0;
+      }
+
+      return prevTasks.map((task) =>
+        task.id === taskId
+          ? { ...task, status: newStatus, order: newOrder }
+          : task,
+      );
+    });
   };
 
   const handleColumnReorder = (draggedColumn: string, targetColumn: string) => {
@@ -83,13 +136,20 @@ const Columns = ({
 }: {
   columns: string[];
   tasks: Task[];
-  onTaskDrop: (taskId: number, newStatus: string) => void;
+  onTaskDrop: (
+    taskId: number,
+    newStatus: string,
+    targetTaskId?: number,
+    position?: "before" | "after",
+  ) => void;
   onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
 }) => {
   return (
     <div className="flex gap-4">
       {columns.map((column) => {
-        const columnTasks = tasks.filter((task) => task.status === column);
+        const columnTasks = tasks
+          .filter((task) => task.status === column)
+          .sort((a, b) => a.order - b.order);
         return (
           <Column
             key={column}
@@ -112,11 +172,17 @@ const Column = ({
 }: {
   title: string;
   tasks: Task[];
-  onTaskDrop: (taskId: number, newStatus: string) => void;
+  onTaskDrop: (
+    taskId: number,
+    newStatus: string,
+    targetTaskId?: number,
+    position?: "before" | "after",
+  ) => void;
   onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [isDraggedOver, setIsDraggedOver] = useState(false);
+  const [isTaskDraggedOver, setIsTaskDraggedOver] = useState(false);
+  const [isColumnDraggedOver, setIsColumnDraggedOver] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -130,23 +196,37 @@ const Column = ({
       onDrop: () => setIsDragging(false),
     });
 
+    // Single drop target that handles both tasks and columns
     const cleanupDropTarget = dropTargetForElements({
       element: el,
-      onDragEnter: () => setIsDraggedOver(true),
-      onDragLeave: () => setIsDraggedOver(false),
-      onDrop: ({ source }) => {
-        setIsDraggedOver(false);
-        
-        // Handle task drop
-        const taskId = source.data.taskId;
-        if (typeof taskId === "number") {
-          onTaskDrop(taskId, title);
+      onDragEnter: ({ source }) => {
+        if (source.data.type === "column") {
+          setIsColumnDraggedOver(true);
+        } else if (source.data.type === "task") {
+          setIsTaskDraggedOver(true);
         }
-        
+      },
+      onDragLeave: ({ source }) => {
+        if (source.data.type === "column") {
+          setIsColumnDraggedOver(false);
+        } else if (source.data.type === "task") {
+          setIsTaskDraggedOver(false);
+        }
+      },
+      onDrop: ({ source }) => {
+        setIsColumnDraggedOver(false);
+        setIsTaskDraggedOver(false);
+
         // Handle column reorder
         const columnId = source.data.columnId;
         if (typeof columnId === "string" && source.data.type === "column") {
           onColumnReorder(columnId, title);
+        }
+
+        // Handle task drop in empty space (at end of column)
+        const taskId = source.data.taskId;
+        if (typeof taskId === "number" && source.data.type === "task") {
+          onTaskDrop(taskId, title);
         }
       },
     });
@@ -159,44 +239,163 @@ const Column = ({
   return (
     <div
       ref={ref}
-      className={`w-74 h-200 border border-gray-300 rounded-lg p-2 cursor-move ${
-        isDraggedOver ? "bg-blue-100" : ""
+      className={`w-74 h-200 border-2 rounded-lg p-2 cursor-move transition-colors ${
+        isTaskDraggedOver
+          ? "border-blue-500 bg-blue-50"
+          : isColumnDraggedOver
+            ? "border-purple-500 bg-purple-50"
+            : "border-gray-300"
       } ${isDragging ? "opacity-50" : ""}`}
     >
       <p className="font-bold mb-2">{title}</p>
       <div>
         {tasks.length > 0 ? (
-          tasks.map((task) => <Task key={task.id} task={task} />)
+          tasks.map((task) => (
+            <Task
+              key={task.id}
+              task={task}
+              columnStatus={title}
+              onTaskDrop={onTaskDrop}
+            />
+          ))
         ) : (
-          <p>no Data found</p>
+          <EmptyDropZone columnStatus={title} onTaskDrop={onTaskDrop} />
         )}
       </div>
     </div>
   );
 };
 
-const Task = ({ task }: { task: Task }) => {
+const EmptyDropZone = ({
+  columnStatus,
+  onTaskDrop,
+}: {
+  columnStatus: string;
+  onTaskDrop: (
+    taskId: number,
+    newStatus: string,
+    targetTaskId?: number,
+    position?: "before" | "after",
+  ) => void;
+}) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<boolean>(false);
+  const [isDraggedOver, setIsDraggedOver] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     invariant(el);
 
-    return draggable({
+    return dropTargetForElements({
       element: el,
-      getInitialData: () => ({ taskId: task.id }),
-      onDragStart: () => setDragging(true),
-      onDrop: () => setDragging(false),
+      canDrop: ({ source }) => typeof source.data.taskId === "number",
+      onDragEnter: () => setIsDraggedOver(true),
+      onDragLeave: () => setIsDraggedOver(false),
+      onDrop: ({ source }) => {
+        setIsDraggedOver(false);
+        const taskId = source.data.taskId;
+        if (typeof taskId === "number") {
+          onTaskDrop(taskId, columnStatus);
+        }
+      },
     });
-  }, [task.id]);
+  }, [columnStatus, onTaskDrop]);
+
   return (
     <div
       ref={ref}
-      className={`border bg-white border-gray-200 rounded p-2 mb-2 ${dragging ? "opacity-50" : ""}`}
+      className={`min-h-20 border-2 border-dashed rounded p-2 text-center text-gray-400 ${
+        isDraggedOver ? "border-blue-400 bg-blue-50" : "border-gray-300"
+      }`}
     >
-      <h5 className="font-bold">{task.title}</h5>
-      <p className="text-sm">{task.description}</p>
+      Drop task here
+    </div>
+  );
+};
+
+const Task = ({
+  task,
+  columnStatus,
+  onTaskDrop,
+}: {
+  task: Task;
+  columnStatus: string;
+  onTaskDrop: (
+    taskId: number,
+    newStatus: string,
+    targetTaskId?: number,
+    position?: "before" | "after",
+  ) => void;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<boolean>(false);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const el = ref.current;
+    invariant(el);
+
+    const cleanupDraggable = draggable({
+      element: el,
+      getInitialData: () => ({ taskId: task.id, type: "task" }),
+      onDragStart: () => setDragging(true),
+      onDrop: () => setDragging(false),
+    });
+
+    const cleanupDropTarget = dropTargetForElements({
+      element: el,
+      canDrop: ({ source }) =>
+        typeof source.data.taskId === "number" &&
+        source.data.taskId !== task.id,
+      getData: ({ input }) => {
+        const rect = el.getBoundingClientRect();
+        const midpoint = rect.top + rect.height / 2;
+        const position = input.clientY < midpoint ? "before" : "after";
+        return { taskId: task.id, position };
+      },
+      onDragEnter: ({ self }) => {
+        const position = self.data.position as "before" | "after";
+        setDropPosition(position);
+      },
+      onDrag: ({ self }) => {
+        const position = self.data.position as "before" | "after";
+        setDropPosition(position);
+      },
+      onDragLeave: () => setDropPosition(null),
+      onDrop: ({ source, self }) => {
+        setDropPosition(null);
+        const draggedTaskId = source.data.taskId;
+        const position = self.data.position as "before" | "after";
+        if (typeof draggedTaskId === "number") {
+          onTaskDrop(draggedTaskId, columnStatus, task.id, position);
+        }
+      },
+    });
+
+    return () => {
+      cleanupDraggable();
+      cleanupDropTarget();
+    };
+  }, [task.id, columnStatus, onTaskDrop]);
+
+  return (
+    <div className="relative">
+      {dropPosition === "before" && (
+        <div className="h-0.5 bg-blue-500 mb-1 rounded"></div>
+      )}
+      <div
+        ref={ref}
+        className={`border bg-white border-gray-200 rounded p-2 mb-2 cursor-grab active:cursor-grabbing ${
+          dragging ? "opacity-50" : ""
+        }`}
+      >
+        <h5 className="font-bold">{task.title}</h5>
+        <p className="text-sm">{task.description}</p>
+      </div>
+      {dropPosition === "after" && (
+        <div className="h-0.5 bg-blue-500 -mt-1 mb-1 rounded"></div>
+      )}
     </div>
   );
 };
