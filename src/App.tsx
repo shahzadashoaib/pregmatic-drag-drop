@@ -144,20 +144,38 @@ const Columns = ({
   ) => void;
   onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
 }) => {
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+  const [dropTargetColumn, setDropTargetColumn] = useState<string | null>(null);
+
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-4 relative">
       {columns.map((column) => {
         const columnTasks = tasks
           .filter((task) => task.status === column)
           .sort((a, b) => a.order - b.order);
+
+        const isDraggedColumn = draggedColumn === column;
+        const isDropTarget = dropTargetColumn === column;
+
         return (
-          <Column
-            key={column}
-            title={column}
-            tasks={columnTasks}
-            onTaskDrop={onTaskDrop}
-            onColumnReorder={onColumnReorder}
-          />
+          <div key={column} className="relative">
+            {isDropTarget && draggedColumn && !isDraggedColumn && (
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 -ml-2 rounded-full z-10" />
+            )}
+            <Column
+              title={column}
+              tasks={columnTasks}
+              onTaskDrop={onTaskDrop}
+              onColumnReorder={onColumnReorder}
+              onDragStart={() => setDraggedColumn(column)}
+              onDragEnd={() => {
+                setDraggedColumn(null);
+                setDropTargetColumn(null);
+              }}
+              onColumnDragEnter={() => setDropTargetColumn(column)}
+              isDragging={isDraggedColumn}
+            />
+          </div>
         );
       })}
     </div>
@@ -169,6 +187,10 @@ const Column = ({
   tasks,
   onTaskDrop,
   onColumnReorder,
+  onDragStart,
+  onDragEnd,
+  onColumnDragEnter,
+  isDragging,
 }: {
   title: string;
   tasks: Task[];
@@ -179,11 +201,14 @@ const Column = ({
     position?: "before" | "after",
   ) => void;
   onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onColumnDragEnter: () => void;
+  isDragging: boolean;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isTaskDraggedOver, setIsTaskDraggedOver] = useState(false);
   const [isColumnDraggedOver, setIsColumnDraggedOver] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -192,8 +217,8 @@ const Column = ({
     const cleanupDraggable = draggable({
       element: el,
       getInitialData: () => ({ columnId: title, type: "column" }),
-      onDragStart: () => setIsDragging(true),
-      onDrop: () => setIsDragging(false),
+      onDragStart: () => onDragStart(),
+      onDrop: () => onDragEnd(),
     });
 
     // Single drop target that handles both tasks and columns
@@ -202,6 +227,7 @@ const Column = ({
       onDragEnter: ({ source }) => {
         if (source.data.type === "column") {
           setIsColumnDraggedOver(true);
+          onColumnDragEnter();
         } else if (source.data.type === "task") {
           setIsTaskDraggedOver(true);
         }
@@ -235,7 +261,14 @@ const Column = ({
       cleanupDraggable();
       cleanupDropTarget();
     };
-  }, [title, onTaskDrop, onColumnReorder]);
+  }, [
+    title,
+    onTaskDrop,
+    onColumnReorder,
+    onDragStart,
+    onDragEnd,
+    onColumnDragEnter,
+  ]);
   return (
     <div
       ref={ref}
