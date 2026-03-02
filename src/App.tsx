@@ -32,6 +32,12 @@ function App() {
     },
   ]);
 
+  const [columns, setColumns] = useState<string[]>([
+    "todo",
+    "in-progress",
+    "done",
+  ]);
+
   const handleTaskDrop = (taskId: number, newStatus: string) => {
     setTasks((prevTasks) =>
       prevTasks.map((task) =>
@@ -40,12 +46,30 @@ function App() {
     );
   };
 
-  const columns = ["todo", "in-progress", "done"];
+  const handleColumnReorder = (draggedColumn: string, targetColumn: string) => {
+    setColumns((prevColumns) => {
+      const newColumns = [...prevColumns];
+      const draggedIndex = newColumns.indexOf(draggedColumn);
+      const targetIndex = newColumns.indexOf(targetColumn);
+
+      // Remove dragged column and insert at target position
+      newColumns.splice(draggedIndex, 1);
+      newColumns.splice(targetIndex, 0, draggedColumn);
+
+      return newColumns;
+    });
+  };
+
   return (
     <div className="p-6">
       <h4 className="text-4xl font-bold">Kanban Board</h4>
       <div className="mt-4">
-        <Columns columns={columns} tasks={tasks} onTaskDrop={handleTaskDrop} />
+        <Columns
+          columns={columns}
+          tasks={tasks}
+          onTaskDrop={handleTaskDrop}
+          onColumnReorder={handleColumnReorder}
+        />
       </div>
     </div>
   );
@@ -55,10 +79,12 @@ const Columns = ({
   columns,
   tasks,
   onTaskDrop,
+  onColumnReorder,
 }: {
   columns: string[];
   tasks: Task[];
   onTaskDrop: (taskId: number, newStatus: string) => void;
+  onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
 }) => {
   return (
     <div className="flex gap-4">
@@ -70,6 +96,7 @@ const Columns = ({
             title={column}
             tasks={columnTasks}
             onTaskDrop={onTaskDrop}
+            onColumnReorder={onColumnReorder}
           />
         );
       })}
@@ -81,35 +108,60 @@ const Column = ({
   title,
   tasks,
   onTaskDrop,
+  onColumnReorder,
 }: {
   title: string;
   tasks: Task[];
   onTaskDrop: (taskId: number, newStatus: string) => void;
+  onColumnReorder: (draggedColumn: string, targetColumn: string) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     invariant(el);
 
-    return dropTargetForElements({
+    const cleanupDraggable = draggable({
+      element: el,
+      getInitialData: () => ({ columnId: title, type: "column" }),
+      onDragStart: () => setIsDragging(true),
+      onDrop: () => setIsDragging(false),
+    });
+
+    const cleanupDropTarget = dropTargetForElements({
       element: el,
       onDragEnter: () => setIsDraggedOver(true),
       onDragLeave: () => setIsDraggedOver(false),
       onDrop: ({ source }) => {
         setIsDraggedOver(false);
+        
+        // Handle task drop
         const taskId = source.data.taskId;
         if (typeof taskId === "number") {
           onTaskDrop(taskId, title);
         }
+        
+        // Handle column reorder
+        const columnId = source.data.columnId;
+        if (typeof columnId === "string" && source.data.type === "column") {
+          onColumnReorder(columnId, title);
+        }
       },
     });
-  }, [title, onTaskDrop]);
+
+    return () => {
+      cleanupDraggable();
+      cleanupDropTarget();
+    };
+  }, [title, onTaskDrop, onColumnReorder]);
   return (
     <div
       ref={ref}
-      className={`w-74 h-200 border border-gray-300 rounded-lg p-2 ${isDraggedOver ? "bg-blue-100" : ""}`}
+      className={`w-74 h-200 border border-gray-300 rounded-lg p-2 cursor-move ${
+        isDraggedOver ? "bg-blue-100" : ""
+      } ${isDragging ? "opacity-50" : ""}`}
     >
       <p className="font-bold mb-2">{title}</p>
       <div>
