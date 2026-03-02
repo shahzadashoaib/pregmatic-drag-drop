@@ -259,55 +259,9 @@ const Column = ({
             />
           ))
         ) : (
-          <EmptyDropZone columnStatus={title} onTaskDrop={onTaskDrop} />
+          <p className="text-gray-400 text-center py-4">No tasks</p>
         )}
       </div>
-    </div>
-  );
-};
-
-const EmptyDropZone = ({
-  columnStatus,
-  onTaskDrop,
-}: {
-  columnStatus: string;
-  onTaskDrop: (
-    taskId: number,
-    newStatus: string,
-    targetTaskId?: number,
-    position?: "before" | "after",
-  ) => void;
-}) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isDraggedOver, setIsDraggedOver] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    invariant(el);
-
-    return dropTargetForElements({
-      element: el,
-      canDrop: ({ source }) => typeof source.data.taskId === "number",
-      onDragEnter: () => setIsDraggedOver(true),
-      onDragLeave: () => setIsDraggedOver(false),
-      onDrop: ({ source }) => {
-        setIsDraggedOver(false);
-        const taskId = source.data.taskId;
-        if (typeof taskId === "number") {
-          onTaskDrop(taskId, columnStatus);
-        }
-      },
-    });
-  }, [columnStatus, onTaskDrop]);
-
-  return (
-    <div
-      ref={ref}
-      className={`min-h-20 border-2 border-dashed rounded p-2 text-center text-gray-400 ${
-        isDraggedOver ? "border-blue-400 bg-blue-50" : "border-gray-300"
-      }`}
-    >
-      Drop task here
     </div>
   );
 };
